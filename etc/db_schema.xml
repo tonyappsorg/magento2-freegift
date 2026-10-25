@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <!-- Lives on the rule itself so the core rule save/load/form round-trips it with no extra code. -->
+    <table name="salesrule">
+        <column xsi:type="varchar" name="tonyapps_gift_skus" length="255" nullable="true" comment="Free Gift SKUs (comma-separated)"/>
+    </table>
+</schema>
