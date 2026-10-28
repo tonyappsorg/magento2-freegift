@@ -20,10 +20,12 @@ websites, customer groups and priorities. They can't put a product in the cart. 
 |---|---|
 | `salesrule.tonyapps_gift_skus` | Extra column on the core rule table; the core form saves and loads it with no extra code. |
 | `Model\Rule\Action\Discount\FreeGift` | Registered with core's discount `CalculatorFactory`. Discounts nothing; its only job is to make core mark matching items with the rule id. |
-| `Observer\SyncGifts` | On `sales_quote_collect_totals_after`, adds the gifts of matched rules at price 0 (`custom_price`), removes gifts whose rule no longer matches, resets gift qty to 1, then re-collects once. |
+| `Observer\SyncGifts` | On `sales_quote_collect_totals_before`, hides gift lines (flagged deleted) so a gift never counts toward any rule's qty, weight or product conditions. On `..._after`, restores them, adds the gifts of matched rules at price 0 (`custom_price`), removes gifts whose rule no longer matches, resets gift qty to 1, then re-collects once. |
 | `Model\GiftPlanner` | Pure add/remove diff, unit-tested. |
 
-Gift lines carry a `tonyapps_free_gift` item option (the rule id) and show **Promotion: Free gift** in the cart and minicart.
+Gift lines carry the rule id in a `tonyapps_free_gift` item option and in the buy request, and show **Promotion: Free gift**
+in the cart, minicart and order. Reorder and admin "edit order" copy only the buy request, so a reordered gift is
+recognised, kept free, and dropped if the rule no longer matches.
 
 ## Limits (v1)
 
@@ -31,7 +33,7 @@ Gift lines carry a `tonyapps_free_gift` item option (the rule id) and show **Pro
 * An out-of-stock gift is skipped silently (logged at info). The cart still works.
 * The shopper can't choose between gifts or decline one. If they delete it, it comes back on the next cart update while the rule still matches.
 * Qty is always 1 per SKU per rule.
-* Order items don't carry the "Free gift" label. They show at price 0, and the order's `applied_rule_ids` includes the rule.
+* **Multishipping** isn't supported: address items don't carry `custom_price`, so gifts are removed from multishipping carts.
 
 ## Install
 

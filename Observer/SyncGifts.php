@@ -17,17 +17,24 @@ use Tonyapps\FreeGift\Model\GiftPlanner;
 use Tonyapps\FreeGift\Model\Rule\Action\Discount\FreeGift;
 
 /**
- * After every totals run: add gifts for "Add free gift" rules that matched, drop gifts whose rule no longer does,
- * then re-collect once so the totals include the change.
+ * Keeps gift lines in step with the "Add free gift" rules that match.
+ *
+ * Before a totals run, gift lines are hidden (flagged deleted, which every core item list skips), so a gift never
+ * counts toward the qty, weight or product conditions of a rule, its own included. After the run, they are put
+ * back, gifts are added or dropped to match, and totals are re-collected once with the gifts visible.
  *
  * Matched rules are read from the items, not the quote: core only resets quote.applied_rule_ids on the first
  * totals run of a request, while item applied_rule_ids are reset on every run.
+ *
+ * Multishipping is not supported: address items don't carry custom_price, so gifts are removed there.
  */
 class SyncGifts implements ObserverInterface
 {
     public const OPTION_CODE = 'tonyapps_free_gift';
 
     private const GIFT_TYPES = [Type::TYPE_SIMPLE, Type::TYPE_VIRTUAL];
+
+    private const HIDDEN_FLAG = 'tonyapps_free_gift_hidden';
 
     private bool $running = false;
 
@@ -48,9 +55,15 @@ class SyncGifts implements ObserverInterface
             return;
         }
 
+        if ($observer->getEvent()->getName() === 'sales_quote_collect_totals_before') {
+            $this->hideGifts($quote);
+            return;
+        }
+
         $this->running = true;
         try {
-            if ($this->sync($quote)) {
+            $hadGifts = $this->restoreGifts($quote);
+            if ($this->sync($quote) || $hadGifts) {
                 // Addresses cache their item list and core never clears it, so the re-collect would miss the change.
                 foreach ($quote->getAllAddresses() as $address) {
                     $address->unsetData('cached_items_all');
@@ -63,6 +76,43 @@ class SyncGifts implements ObserverInterface
         }
     }
 
+    private function hideGifts(Quote $quote): void
+    {
+        if ($quote->getIsMultiShipping()) {
+            return;
+        }
+        foreach ($quote->getAllVisibleItems() as $item) {
+            if ($this->giftRuleId($item)) {
+                $item->isDeleted(true);
+                $item->setData(self::HIDDEN_FLAG, true);
+            }
+        }
+    }
+
+    /** @return bool whether any gift was hidden for the run that just finished */
+    private function restoreGifts(Quote $quote): bool
+    {
+        $restored = false;
+        foreach ($quote->getItemsCollection() as $item) {
+            if ($item->getData(self::HIDDEN_FLAG)) {
+                $item->isDeleted(false);
+                $item->unsetData(self::HIDDEN_FLAG);
+                $restored = true;
+            }
+        }
+        return $restored;
+    }
+
+    /**
+     * Rule id of a gift line, 0 for a normal line. Reorder and admin "edit order" rebuild lines from the order's
+     * buy request without custom options, so the buy request is checked too.
+     */
+    private function giftRuleId(Item $item): int
+    {
+        $option = $item->getOptionByCode(self::OPTION_CODE);
+        return (int) ($option ? $option->getValue() : $item->getBuyRequest()->getData(self::OPTION_CODE));
+    }
+
     /** @return bool whether the cart changed */
     private function sync(Quote $quote): bool
     {
@@ -70,10 +120,10 @@ class SyncGifts implements ObserverInterface
         $current = [];
         $ruleIds = [];
         foreach ($quote->getAllVisibleItems() as $key => $item) {
-            $option = $item->getOptionByCode(self::OPTION_CODE);
-            if ($option) {
+            $giftRuleId = $this->giftRuleId($item);
+            if ($giftRuleId) {
                 $gifts[$key] = $item;
-                $current[$key] = ['rule_id' => (int) $option->getValue(), 'sku' => (string) $item->getProduct()->getData('sku')];
+                $current[$key] = ['rule_id' => $giftRuleId, 'sku' => (string) $item->getProduct()->getData('sku')];
                 continue;
             }
             foreach (explode(',', (string) $item->getAppliedRuleIds()) as $ruleId) {
@@ -86,7 +136,8 @@ class SyncGifts implements ObserverInterface
             return false;
         }
 
-        $plan = $this->planner->plan($this->wantedGifts($ruleIds), $current);
+        $wanted = $quote->getIsMultiShipping() ? [] : $this->wantedGifts($ruleIds);
+        $plan = $this->planner->plan($wanted, $current);
         $changed = false;
 
         foreach ($plan['remove'] as $key) {
@@ -103,7 +154,7 @@ class SyncGifts implements ObserverInterface
         }
         // Shoppers can't buy more free gifts by editing qty in the cart.
         foreach ($gifts as $item) {
-            if ((float) $item->getQty() !== 1.0 || (float) $item->getCustomPrice() !== 0.0) {
+            if ((float) $item->getQty() !== 1.0 || $item->getCustomPrice() === null || (float) $item->getCustomPrice() !== 0.0) {
                 $this->makeFree($item->setQty(1));
                 $changed = true;
             }
@@ -147,12 +198,11 @@ class SyncGifts implements ObserverInterface
         }
 
         $product->addCustomOption(self::OPTION_CODE, (string) $ruleId);
-        $product->addCustomOption('additional_options', $this->json->serialize([
-            ['label' => (string) __('Promotion'), 'value' => (string) __('Free gift')],
-        ]));
+        $product->addCustomOption('additional_options', $this->label());
 
         try {
-            $item = $quote->addProduct($product, new DataObject(['qty' => 1]));
+            // The rule id also goes in the buy request, the only part of the line that reorder copies.
+            $item = $quote->addProduct($product, new DataObject(['qty' => 1, self::OPTION_CODE => $ruleId]));
         } catch (\Exception $e) {
             $item = $e->getMessage();
         }
@@ -170,5 +220,13 @@ class SyncGifts implements ObserverInterface
     {
         $item->setCustomPrice(0)->setOriginalCustomPrice(0);
         $item->getProduct()->setIsSuperMode(true);
+        if (!$item->getOptionByCode('additional_options')) {
+            $item->addOption(['code' => 'additional_options', 'value' => $this->label()]);
+        }
+    }
+
+    private function label(): string
+    {
+        return $this->json->serialize([['label' => (string) __('Promotion'), 'value' => (string) __('Free gift')]]);
     }
 }
