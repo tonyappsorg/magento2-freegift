@@ -2,8 +2,9 @@
     "name": "tonyapps/module-free-gift",
     "description": "Adds an \"Add free gift\" action to cart price rules: matching carts get the gift product added at zero price.",
     "type": "magento2-module",
+    "license": "proprietary",
     "require": {
-        "php": "~8.1.0||~8.2.0||~8.3.0",
+        "php": "~8.3.0||~8.4.0",
         "magento/framework": "*",
         "magento/module-quote": "*",
         "magento/module-sales-rule": "*",
