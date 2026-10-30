@@ -35,6 +35,12 @@ recognised, kept free, and dropped if the rule no longer matches.
 * Qty is always 1 per SKU per rule.
 * **Multishipping** isn't supported: address items don't carry `custom_price`, so gifts are removed from multishipping carts.
 
+## 2026-10-30 review fixes
+
+- Gift lines no longer count toward cart price rule conditions in the final re-collect (`total_qty`, weight, product found/subselect). `Plugin\SalesRule\HideGiftsFromRuleConditions` wraps `Utility::canProcessRule()`, which every rule condition check calls. Example: "-10% from 3 items" no longer applies to 2 paid items plus a gift.
+- Hiding gifts now clears the addresses' cached item list, so a second totals run in the same request also hides them.
+- A gift line that fails the stock check (out of stock or disabled after it was added) is removed, and the quote's stale "Some of the products are out of stock" error is cleared, so the gift no longer blocks checkout. It is added back once it is available again.
+
 ## Install
 
 ```

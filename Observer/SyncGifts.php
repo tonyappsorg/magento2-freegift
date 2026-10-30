@@ -21,7 +21,8 @@ use Tonyapps\FreeGift\Model\Rule\Action\Discount\FreeGift;
  *
  * Before a totals run, gift lines are hidden (flagged deleted, which every core item list skips), so a gift never
  * counts toward the qty, weight or product conditions of a rule, its own included. After the run, they are put
- * back, gifts are added or dropped to match, and totals are re-collected once with the gifts visible.
+ * back, gifts are added or dropped to match, and totals are re-collected once with the gifts visible. During that
+ * re-collect, Plugin\SalesRule\HideGiftsFromRuleConditions still keeps them out of every rule's conditions.
  *
  * Matched rules are read from the items, not the quote: core only resets quote.applied_rule_ids on the first
  * totals run of a request, while item applied_rule_ids are reset on every run.
@@ -64,10 +65,7 @@ class SyncGifts implements ObserverInterface
         try {
             $hadGifts = $this->restoreGifts($quote);
             if ($this->sync($quote) || $hadGifts) {
-                // Addresses cache their item list and core never clears it, so the re-collect would miss the change.
-                foreach ($quote->getAllAddresses() as $address) {
-                    $address->unsetData('cached_items_all');
-                }
+                $this->clearItemCache($quote);
                 $quote->setTotalsCollectedFlag(false);
                 $quote->collectTotals();
             }
@@ -81,11 +79,25 @@ class SyncGifts implements ObserverInterface
         if ($quote->getIsMultiShipping()) {
             return;
         }
+        $hidden = false;
         foreach ($quote->getAllVisibleItems() as $item) {
-            if ($this->giftRuleId($item)) {
+            if (self::giftRuleId($item)) {
                 $item->isDeleted(true);
                 $item->setData(self::HIDDEN_FLAG, true);
+                $hidden = true;
             }
+        }
+        if ($hidden) {
+            // An item list cached by an earlier run in this request would still hold the gifts.
+            $this->clearItemCache($quote);
+        }
+    }
+
+    private function clearItemCache(Quote $quote): void
+    {
+        // Addresses cache their item list and core never clears it.
+        foreach ($quote->getAllAddresses() as $address) {
+            $address->unsetData('cached_items_all');
         }
     }
 
@@ -107,7 +119,7 @@ class SyncGifts implements ObserverInterface
      * Rule id of a gift line, 0 for a normal line. Reorder and admin "edit order" rebuild lines from the order's
      * buy request without custom options, so the buy request is checked too.
      */
-    private function giftRuleId(Item $item): int
+    public static function giftRuleId(Item $item): int
     {
         $option = $item->getOptionByCode(self::OPTION_CODE);
         return (int) ($option ? $option->getValue() : $item->getBuyRequest()->getData(self::OPTION_CODE));
@@ -119,9 +131,18 @@ class SyncGifts implements ObserverInterface
         $gifts = [];
         $current = [];
         $ruleIds = [];
+        $changed = false;
+        $dropped = false;
         foreach ($quote->getAllVisibleItems() as $key => $item) {
-            $giftRuleId = $this->giftRuleId($item);
+            $giftRuleId = self::giftRuleId($item);
             if ($giftRuleId) {
+                if ($item->getHasError()) {
+                    // Out of stock or disabled since it was added. Super mode doesn't skip the stock check,
+                    // so the line would block checkout; the plan below re-adds it if it is available again.
+                    $quote->deleteItem($item);
+                    $changed = $dropped = true;
+                    continue;
+                }
                 $gifts[$key] = $item;
                 $current[$key] = ['rule_id' => $giftRuleId, 'sku' => (string) $item->getProduct()->getData('sku')];
                 continue;
@@ -133,12 +154,12 @@ class SyncGifts implements ObserverInterface
             }
         }
         if (!$ruleIds && !$current) {
-            return false;
+            $this->clearStockError($quote, $dropped);
+            return $changed;
         }
 
         $wanted = $quote->getIsMultiShipping() ? [] : $this->wantedGifts($ruleIds);
         $plan = $this->planner->plan($wanted, $current);
-        $changed = false;
 
         foreach ($plan['remove'] as $key) {
             $quote->deleteItem($gifts[$key]);
@@ -150,6 +171,8 @@ class SyncGifts implements ObserverInterface
             if ($item) {
                 $gifts[] = $item;
                 $changed = true;
+            } else {
+                $dropped = true;
             }
         }
         // Shoppers can't buy more free gifts by editing qty in the cart.
@@ -160,7 +183,25 @@ class SyncGifts implements ObserverInterface
             }
         }
 
+        $this->clearStockError($quote, $dropped);
         return $changed;
+    }
+
+    /**
+     * A gift line that failed the stock check leaves "Some of the products are out of stock" on the quote even
+     * after it is removed. Clear it when no remaining line has an error, as core does when an item recovers.
+     */
+    private function clearStockError(Quote $quote, bool $dropped): void
+    {
+        if (!$dropped || !$quote->getHasError()) {
+            return;
+        }
+        foreach ($quote->getAllItems() as $item) {
+            if ($item->getHasError()) {
+                return;
+            }
+        }
+        $quote->removeErrorInfosByParams(null, ['origin' => 'cataloginventory']);
     }
 
     /**

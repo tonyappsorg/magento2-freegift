@@ -10,4 +10,7 @@
     <type name="Magento\SalesRule\Model\Rule\Action\SimpleActionOptionsProvider">
         <plugin name="tonyapps_freegift_action_option" type="Tonyapps\FreeGift\Plugin\AddFreeGiftAction"/>
     </type>
+    <type name="Magento\SalesRule\Model\Utility">
+        <plugin name="tonyapps_freegift_hide_gifts_from_conditions" type="Tonyapps\FreeGift\Plugin\SalesRule\HideGiftsFromRuleConditions"/>
+    </type>
 </config>
