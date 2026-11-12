@@ -1,55 +1,54 @@
-# Tonyapps_FreeGift
+# Free Gift with Purchase for Magento 2
 
-Free gift with purchase, built as one more **Apply** option on core cart price rules.
+Put a free product in the cart automatically when the cart meets your promotion rules.
 
-Core cart price rules already handle conditions (subtotal, SKUs, categories, qty), coupons, dates,
-websites, customer groups and priorities. They can't put a product in the cart. This module adds only that.
+Magento Open Source cart price rules handle conditions (subtotal, SKUs, categories, quantity), coupons, dates, websites, customer groups and priorities, but they can't put a product in the cart. This module adds one more **Apply** option to those rules, **Add free gift**, so "free water bottle over $50" is set up the same way as any other promotion.
 
-## Use
+## Features
 
-**Marketing > Cart Price Rules > Add New Rule**
-
-1. Set conditions as usual, e.g. *Subtotal equals or greater than 50*.
-2. Actions: **Apply = Add free gift**, **Discount Amount = 0**, **Free Gift SKUs = `24-UG06`** (comma-separate several).
-3. Optional: restrict *Apply the rule only to cart items matching the following conditions*. The gift is added
-   when at least one cart item matches.
+- **Works inside cart price rules**: no new admin screen to learn. Use every condition, coupon, date range, website and customer-group setting core rules already have.
+- **Automatic add and remove**: the gift appears at $0 as soon as the cart qualifies and disappears when it no longer does.
+- **One or several gifts per rule**: list one or more SKUs; each is added once.
+- **Gift only when the right products are bought**: optionally limit the rule to carts containing matching items.
+- **Gifts don't inflate other promotions**: a gift never counts toward any rule's quantity, weight or product conditions, so "10% off 3 items" doesn't fire on 2 paid items plus a gift.
+- **Clearly labelled**: gift lines show **Promotion: Free gift** in the cart, minicart and order.
+- **Checkout is never blocked**: if a gift goes out of stock or is disabled, it is quietly removed and comes back when available again.
+- **Reorders handled**: reordering, or editing an order in the admin, keeps a gift free while the rule still matches and drops it when it doesn't.
 
 ## How it works
 
-| Piece | What it does |
-|---|---|
-| `salesrule.tonyapps_gift_skus` | Extra column on the core rule table; the core form saves and loads it with no extra code. |
-| `Model\Rule\Action\Discount\FreeGift` | Registered with core's discount `CalculatorFactory`. Discounts nothing; its only job is to make core mark matching items with the rule id. |
-| `Observer\SyncGifts` | On `sales_quote_collect_totals_before`, hides gift lines (flagged deleted) so a gift never counts toward any rule's qty, weight or product conditions. On `..._after`, restores them, adds the gifts of matched rules at price 0 (`custom_price`), removes gifts whose rule no longer matches, resets gift qty to 1, then re-collects once. |
-| `Model\GiftPlanner` | Pure add/remove diff, unit-tested. |
+1. Go to **Marketing › Cart Price Rules › Add New Rule** and set conditions as usual, e.g. *Subtotal equals or greater than 50*.
+2. Under Actions, choose **Apply = Add free gift**, **Discount Amount = 0**, and enter **Free Gift SKUs**, e.g. `24-UG06` (comma-separate several).
+3. Optional: fill in *Apply the rule only to cart items matching the following conditions*. The gift is added when at least one cart item matches.
 
-Gift lines carry the rule id in a `tonyapps_free_gift` item option and in the buy request, and show **Promotion: Free gift**
-in the cart, minicart and order. Reorder and admin "edit order" copy only the buy request, so a reordered gift is
-recognised, kept free, and dropped if the rule no longer matches.
+Shoppers see the gift in their cart at $0 whenever the rule matches.
 
-## Limits (v1)
+## Good to know
 
-* Gifts must be **simple or virtual** products. Configurables are skipped with a log warning.
-* An out-of-stock gift is skipped silently (logged at info). The cart still works.
-* The shopper can't choose between gifts or decline one. If they delete it, it comes back on the next cart update while the rule still matches.
-* Qty is always 1 per SKU per rule.
-* **Multishipping** isn't supported: address items don't carry `custom_price`, so gifts are removed from multishipping carts.
+- Gifts must be **simple or virtual** products. Configurable products are skipped.
+- Quantity is always 1 per gift SKU per rule.
+- Shoppers can't choose between gifts or decline one; a deleted gift comes back on the next cart update while the rule still matches.
+- An out-of-stock gift is simply not added; the rest of the cart works normally.
+- **Multishipping** checkout isn't supported: gifts are removed from multishipping carts.
 
-## 2026-10-30 review fixes
+## Requirements
 
-- Gift lines no longer count toward cart price rule conditions in the final re-collect (`total_qty`, weight, product found/subselect). `Plugin\SalesRule\HideGiftsFromRuleConditions` wraps `Utility::canProcessRule()`, which every rule condition check calls. Example: "-10% from 3 items" no longer applies to 2 paid items plus a gift.
-- Hiding gifts now clears the addresses' cached item list, so a second totals run in the same request also hides them.
-- A gift line that fails the stock check (out of stock or disabled after it was added) is removed, and the quote's stale "Some of the products are out of stock" error is cleared, so the gift no longer blocks checkout. It is added back once it is available again.
+- Magento Open Source 2.4.8
+- PHP 8.3 or 8.4
+- Magento modules: Quote, SalesRule, Catalog
 
-## Install
+## Installation
 
-```
+```sh
+composer require tonyapps/module-free-gift
 bin/magento module:enable Tonyapps_FreeGift
 bin/magento setup:upgrade
 ```
 
-## Tests
+## Configuration
 
-```
-vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist app/code/Tonyapps/FreeGift/Test/Unit
-```
+- **Marketing › Cart Price Rules**: create or edit a rule and choose **Apply = Add free gift**. There is no separate settings page.
+
+## For developers
+
+Architecture, decisions, data model and tests are in [AGENTS.md](AGENTS.md).
