@@ -64,6 +64,8 @@ bin/magento setup:upgrade
 
 ## Change history
 
+- **2026-11-16** — Released as free software under GPL-3.0-or-later (owner decision): `LICENSE` added,
+  `composer.json` license changed from `proprietary`, License section in the README.
 - **2026-10-30 review fixes**:
   - Gift lines no longer count toward cart price rule conditions in the final re-collect (`total_qty`, weight, product found/subselect): `Plugin\SalesRule\HideGiftsFromRuleConditions` wraps `Utility::canProcessRule()`. Example: "-10% from 3 items" no longer applies to 2 paid items plus a gift.
   - Hiding gifts now clears the addresses' cached item list, so a second totals run in the same request also hides them.
