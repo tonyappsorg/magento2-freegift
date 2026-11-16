@@ -4,7 +4,7 @@ Read this before changing the module. Workspace-wide rules are in ../AGENTS.md.
 
 ## Status
 
-- Built 2026-10-23; package `tonyapps/module-free-gift` 0.1.0 (v1 limits below).
+- Built 2026-10-23; package `tonyapps/module-free-gift` 1.0.0 (v1 limits below).
 - 2026-10-30 review fixes done (see Change history).
 - Scope rule: core cart price rules already handle conditions (subtotal, SKUs, categories, qty), coupons, dates, websites, customer groups and priorities. They can't put a product in the cart. This module adds only that, as one more **Apply** option.
 - WORKPLAN item "Discount on the cheapest item" (2026-11-09, not scoped) may extend or rename this module into `SpecialPromotions`; a rename touches the composer package, module name, namespaces, config paths and the `salesrule.tonyapps_gift_skus` column. See ../WORKPLAN.md.
